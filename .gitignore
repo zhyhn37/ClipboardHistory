@@ -1,0 +1,23 @@
+# Claude
+.claude/
+
+# Xcode
+*.xcuserdata
+*.xcworkspace
+DerivedData/
+*.xcresult
+*.xcuserstate
+xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+Thumbs.db
+
+# User data
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
