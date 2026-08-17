@@ -34,8 +34,8 @@ ClipboardHistoryApp (App 入口)
 │   └── 回调通知 DataStore 写入
 │
 ├── DataStore (单例)
-│   ├── DatabaseQueue (GRDB)
-│   ├── CRUD 方法
+│   ├── SQLite3 原生 C API
+│   ├── CRUD + 合并插入方法
 │   ├── 搜索（SQL LIKE）
 │   ├── 过期清理
 │   └── 置顶切换
@@ -57,7 +57,7 @@ ClipboardHistoryApp (App 入口)
     │   └── 图片卡片
     │
     └── SettingsView（设置窗口）
-        ├── 存储时长 Picker
+        ├── 存储时长说明（固定 3 天）
         └── 开机启动 Toggle
 ```
 
@@ -66,8 +66,8 @@ ClipboardHistoryApp (App 入口)
 ```
 用户复制 → NSPasteboard 更新
     → ClipboardMonitor 检测变化
-    → 读取内容 + 去重判断
-    → DataStore.insert(item)
+    → 读取内容 + 合并判定（存在则刷新时间戳）
+    → DataStore.insertOrMerge(item)
     → SQLite 写入 + (图片) 文件写入
     → UI 刷新（通过 @Published / Combine）
 ```
@@ -90,6 +90,7 @@ struct ClipboardItem: Identifiable, Codable {
     var timestamp: Date
     var isPinned: Bool
     var textPreview: String?  // 文字预览（前100字）
+    var contentHash: String?  // 图片像素哈希（重复合并判定，仅图片有值）
 }
 
 enum ItemType: String, Codable {
@@ -108,12 +109,28 @@ CREATE TABLE clipboard_item (
     image_path TEXT,
     timestamp REAL NOT NULL,      -- TimeInterval since 1970
     is_pinned INTEGER DEFAULT 0,  -- 0 | 1
-    text_preview TEXT
+    text_preview TEXT,
+    content_hash TEXT             -- 图片像素 SHA256，重复合并判定
 );
 
 CREATE INDEX idx_timestamp ON clipboard_item(timestamp DESC);
 CREATE INDEX idx_pinned ON clipboard_item(is_pinned);
+CREATE INDEX idx_content_hash ON clipboard_item(content_hash);
+CREATE INDEX idx_text_content ON clipboard_item(text_content);
 ```
+
+## 数据库迁移
+
+无迁移框架，采用幂等轻量迁移（`DataStore.migrateIfNeeded`）：
+
+1. 建表 SQL 直接包含最新列定义（新装即最新结构）
+2. 启动时用 `PRAGMA table_info` 检查缺失列，`ALTER TABLE ADD COLUMN` 补齐
+3. 索引用 `CREATE INDEX IF NOT EXISTS` 幂等创建
+
+## 已知限制
+
+- 升级前已存在的图片条目 `content_hash` 为 NULL，不参与重复合并，3 天内自然过期
+- 升级前已有的重复数据不做全库去重，仅新复制时合并最新一条
 
 ## 关键 API 使用
 
@@ -121,7 +138,8 @@ CREATE INDEX idx_pinned ON clipboard_item(is_pinned);
 - `NSEvent.addGlobalMonitorForEvents(matching: .keyDown)` — 全局快捷键
 - `CGEvent(keyboardEventSource: .init(stateID: .combinedSessionState), ...)` — 模拟按键
 - `SMAppService.mainApp().register()` — 开机启动注册
-- `UserDefaults` — 存储设置（保留时长、开机启动开关）
+- `CryptoKit SHA256` — 图片像素哈希（重复合并判定，跨会话稳定）
+- `UserDefaults` — 存储设置（开机启动开关）
 
 ## 目录结构
 
