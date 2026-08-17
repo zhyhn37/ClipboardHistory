@@ -8,7 +8,7 @@ final class ClipboardMonitor {
     private var timer: Timer?
     private var lastChangeCount: Int = 0
     private var lastTextContent: String?
-    private var lastImageHash: Int?
+    private var lastImageHash: String?
 
     private let dataStore = DataStore.shared
     private let imageStorage = ImageStorage.shared
@@ -97,58 +97,37 @@ final class ClipboardMonitor {
     // MARK: - 文字处理
 
     private func handleText(_ text: String) {
-        // 去重：与上一条文字内容相同则跳过
+        // 连续去重快速路径：与上一条文字内容相同则跳过
         guard text != lastTextContent else { return }
         lastTextContent = text
         lastImageHash = nil
 
-        let item = ClipboardItem.textItem(content: text)
-        dataStore.insertItem(item)
+        // 插入或合并：任意历史重复内容合并为一条，时间戳刷新到最新
+        dataStore.insertOrMergeText(text)
 
         // 清理过期数据
-        let retentionDays = UserDefaults.standard.optionalInt(forKey: "retentionDays")
-        dataStore.cleanExpired(retentionDays: retentionDays)
+        dataStore.cleanExpired()
     }
 
     // MARK: - 图片处理
 
     private func handleImage(_ image: NSImage) {
-        // 去重：计算图片简单哈希
-        let imageHash = computeImageHash(image)
-        guard imageHash != lastImageHash else { return }
-        lastImageHash = imageHash
-        lastTextContent = nil
-
-        // 保存图片到磁盘
-        guard let imagePath = imageStorage.saveImage(image) else {
-            print("❌ 图片保存失败")
+        // 稳定像素哈希（跨会话一致，用于合并判定与连续去重）
+        guard let hash = imageStorage.contentHash(of: image) else {
+            print("❌ 图片哈希计算失败")
             return
         }
 
-        let item = ClipboardItem.imageItem(imagePath: imagePath)
-        dataStore.insertItem(item)
+        // 连续去重快速路径：与上一张图片相同则跳过
+        guard hash != lastImageHash else { return }
+
+        // 插入或合并：命中时只刷新时间戳，不重复写盘
+        if dataStore.insertOrMergeImage(image, contentHash: hash) {
+            lastImageHash = hash
+            lastTextContent = nil
+        }
 
         // 清理过期数据
-        let retentionDays = UserDefaults.standard.optionalInt(forKey: "retentionDays")
-        dataStore.cleanExpired(retentionDays: retentionDays)
-    }
-
-    // MARK: - 图片简易哈希（用于去重）
-
-    /// 计算图片的简单哈希值（基于像素采样，不要求精确相同）
-    private func computeImageHash(_ image: NSImage) -> Int {
-        guard let tiffData = image.tiffRepresentation else { return 0 }
-        return tiffData.hashValue
-    }
-}
-
-// MARK: - UserDefaults 扩展
-
-extension UserDefaults {
-    /// 读取可选的整数（key 不存在或值为 -1 时返回 nil）
-    func optionalInt(forKey key: String) -> Int? {
-        guard object(forKey: key) != nil else { return nil }
-        let value = integer(forKey: key)
-        return value == -1 ? nil : value
+        dataStore.cleanExpired()
     }
 }

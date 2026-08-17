@@ -18,9 +18,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let dataStore = DataStore.shared
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 清理旧版「存储时长」设置残留（固定保留 3 天，不再读取该设置）
+        UserDefaults.standard.removeObject(forKey: "retentionDays")
+
         // 启动时清理过期数据
-        let retentionDays = UserDefaults.standard.optionalInt(forKey: "retentionDays")
-        dataStore.cleanExpired(retentionDays: retentionDays)
+        dataStore.cleanExpired()
 
         // 启动剪贴板监听
         monitor.start()

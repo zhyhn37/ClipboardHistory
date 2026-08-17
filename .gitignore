@@ -8,6 +8,7 @@ DerivedData/
 *.xcresult
 *.xcuserstate
 xcuserdata/
+build/
 
 # Swift Package Manager
 .build/

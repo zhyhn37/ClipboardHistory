@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import SQLite3
+import AppKit
 
 /// SQLITE_TRANSIENT: 告诉 SQLite 复制字符串内容（Swift 的临时 C 字符串指针不稳定）
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
@@ -59,7 +60,8 @@ final class DataStore: ObservableObject {
                     image_path TEXT,
                     timestamp REAL NOT NULL,
                     is_pinned INTEGER DEFAULT 0,
-                    text_preview TEXT
+                    text_preview TEXT,
+                    content_hash TEXT
                 );
                 CREATE INDEX IF NOT EXISTS idx_timestamp
                     ON clipboard_item(timestamp DESC);
@@ -73,8 +75,51 @@ final class DataStore: ObservableObject {
                 print("❌ 建表失败: \(msg)")
                 sqlite3_free(errMsg)
             }
+
+            // 轻量迁移：老版本数据库补列 + 建合并查询索引
+            migrateIfNeeded()
         } catch {
             print("❌ 数据库初始化失败: \(error)")
+        }
+    }
+
+    // MARK: - 数据库迁移
+
+    /// 轻量迁移：老版本数据库补列 + 建合并查询索引（幂等，可重复执行）
+    private func migrateIfNeeded() {
+        if !columnExists("content_hash") {
+            exec("ALTER TABLE clipboard_item ADD COLUMN content_hash TEXT")
+            print("🛠️ 数据库迁移：新增 content_hash 列")
+        }
+        exec("CREATE INDEX IF NOT EXISTS idx_content_hash ON clipboard_item(content_hash)")
+        exec("CREATE INDEX IF NOT EXISTS idx_text_content ON clipboard_item(text_content)")
+    }
+
+    /// 检查表中是否存在指定列
+    private func columnExists(_ name: String) -> Bool {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(clipboard_item)", -1, &statement, nil) == SQLITE_OK else {
+            return false
+        }
+        defer { sqlite3_finalize(statement) }
+
+        while sqlite3_step(statement) == SQLITE_ROW {
+            // PRAGMA table_info 第 2 列为列名
+            if let cName = sqlite3_column_text(statement, 1),
+               String(cString: cName) == name {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// 执行无绑定参数的单条 SQL（迁移用）
+    private func exec(_ sql: String) {
+        var errMsg: UnsafeMutablePointer<CChar>?
+        if sqlite3_exec(db, sql, nil, nil, &errMsg) != SQLITE_OK {
+            let msg = errMsg.map { String(cString: $0) } ?? ""
+            print("❌ SQL 执行失败: \(msg)")
+            sqlite3_free(errMsg)
         }
     }
 
@@ -95,7 +140,7 @@ final class DataStore: ObservableObject {
 
     private func loadItemsFromDB() -> [ClipboardItem] {
         let sql = """
-            SELECT id, type, text_content, image_path, timestamp, is_pinned, text_preview
+            SELECT id, type, text_content, image_path, timestamp, is_pinned, text_preview, content_hash
             FROM clipboard_item
             ORDER BY is_pinned DESC, timestamp DESC
         """
@@ -132,6 +177,11 @@ final class DataStore: ObservableObject {
                 textPreview = String(cString: ptr)
             }
 
+            var contentHash: String?
+            if let ptr = sqlite3_column_text(statement, 7) {
+                contentHash = String(cString: ptr)
+            }
+
             let item = ClipboardItem(
                 id: id,
                 type: type,
@@ -139,7 +189,8 @@ final class DataStore: ObservableObject {
                 imagePath: imagePath,
                 timestamp: timestamp,
                 isPinned: isPinned,
-                textPreview: textPreview
+                textPreview: textPreview,
+                contentHash: contentHash
             )
             results.append(item)
         }
@@ -152,8 +203,8 @@ final class DataStore: ObservableObject {
     /// 插入一条新记录
     func insertItem(_ item: ClipboardItem) {
         let sql = """
-            INSERT INTO clipboard_item (type, text_content, image_path, timestamp, is_pinned, text_preview)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO clipboard_item (type, text_content, image_path, timestamp, is_pinned, text_preview, content_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """
 
         var statement: OpaquePointer?
@@ -182,6 +233,12 @@ final class DataStore: ObservableObject {
             sqlite3_bind_text(statement, 6, preview, -1, SQLITE_TRANSIENT)
         } else {
             sqlite3_bind_null(statement, 6)
+        }
+
+        if let hash = item.contentHash {
+            sqlite3_bind_text(statement, 7, hash, -1, SQLITE_TRANSIENT)
+        } else {
+            sqlite3_bind_null(statement, 7)
         }
 
         if sqlite3_step(statement) != SQLITE_DONE {
@@ -234,15 +291,100 @@ final class DataStore: ObservableObject {
         loadItems()
     }
 
+    // MARK: - 合并插入
+
+    /// 插入或合并文字条目：内容已存在时仅刷新时间戳（跳到列表顶部，保留置顶状态）
+    func insertOrMergeText(_ text: String) {
+        let now = Date().timeIntervalSince1970
+        if let existingID = findTextID(text) {
+            updateTimestamp(id: existingID, timestamp: now)
+            print("🔁 文字重复，合并到条目 #\(existingID)")
+        } else {
+            insertItem(ClipboardItem.textItem(content: text))
+        }
+    }
+
+    /// 查找内容相同的文字条目 ID（取最新一条）
+    private func findTextID(_ text: String) -> Int64? {
+        let sql = """
+            SELECT id FROM clipboard_item
+            WHERE type = 'text' AND text_content = ?
+            ORDER BY timestamp DESC LIMIT 1
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_text(statement, 1, text, -1, SQLITE_TRANSIENT)
+
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return sqlite3_column_int64(statement, 0)
+    }
+
+    /// 插入或合并图片条目：哈希命中时仅刷新时间戳，不重复写盘
+    /// - Parameter image: 要保存的图片（未命中时写入磁盘）
+    /// - Parameter contentHash: 图片内容哈希
+    /// - Returns: 是否成功记录
+    @discardableResult
+    func insertOrMergeImage(_ image: NSImage, contentHash: String) -> Bool {
+        let now = Date().timeIntervalSince1970
+        if let existingID = findImageID(hash: contentHash) {
+            updateTimestamp(id: existingID, timestamp: now)
+            print("🔁 图片重复，合并到条目 #\(existingID)")
+            return true
+        }
+
+        guard let imagePath = ImageStorage.shared.saveImage(image) else {
+            print("❌ 图片保存失败")
+            return false
+        }
+        insertItem(ClipboardItem.imageItem(imagePath: imagePath, contentHash: contentHash))
+        return true
+    }
+
+    /// 查找内容哈希相同的图片条目 ID（取最新一条）
+    private func findImageID(hash: String) -> Int64? {
+        let sql = """
+            SELECT id FROM clipboard_item
+            WHERE type = 'image' AND content_hash = ?
+            ORDER BY timestamp DESC LIMIT 1
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_text(statement, 1, hash, -1, SQLITE_TRANSIENT)
+
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return sqlite3_column_int64(statement, 0)
+    }
+
+    /// 仅刷新条目的时间戳（合并用），不动置顶与预览
+    private func updateTimestamp(id: Int64, timestamp: TimeInterval) {
+        let sql = "UPDATE clipboard_item SET timestamp = ? WHERE id = ?"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+
+        sqlite3_bind_double(statement, 1, timestamp)
+        sqlite3_bind_int64(statement, 2, id)
+
+        if sqlite3_step(statement) != SQLITE_DONE {
+            print("❌ 更新时间戳失败")
+        }
+
+        loadItems()
+    }
+
     // MARK: - 过期清理
 
-    /// 清理超过保留天数的记录
-    /// - Parameter retentionDays: nil 表示永久保留，不清理
-    func cleanExpired(retentionDays: Int?) {
-        guard let days = retentionDays else { return }
+    /// 固定保留天数：超过该天数的未置顶记录自动清理
+    static let retentionDays: Double = 3
 
+    /// 清理超过保留天数的记录（置顶豁免）
+    func cleanExpired() {
         let cutoffTimestamp = Date()
-            .addingTimeInterval(-Double(days) * 24 * 60 * 60)
+            .addingTimeInterval(-Self.retentionDays * 24 * 60 * 60)
             .timeIntervalSince1970
 
         // 先找出过期的图片条目，删除图片文件

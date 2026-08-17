@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import CryptoKit
 
 /// 图片文件管理器 — 负责剪贴板图片的磁盘存储
 final class ImageStorage {
@@ -58,6 +59,47 @@ final class ImageStorage {
             print("❌ 图片写入失败: \(error)")
             return nil
         }
+    }
+
+    // MARK: - 内容哈希
+
+    /// 计算图片的稳定内容哈希（基于归一化像素，跨会话一致，用于重复合并判定）
+    /// - Parameter image: 要哈希的图片
+    /// - Returns: 64 位十六进制字符串，失败返回 nil
+    func contentHash(of image: NSImage) -> String? {
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              cgImage.width > 0, cgImage.height > 0 else { return nil }
+
+        let width = cgImage.width
+        let height = cgImage.height
+
+        // 超大图保护：像素缓冲超过 256MB 时降级为 TIFF 字节哈希（同样跨会话稳定）
+        guard width * height * 4 <= 256 * 1024 * 1024 else {
+            guard let tiffData = image.tiffRepresentation else { return nil }
+            return Self.sha256Hex(Data(tiffData))
+        }
+
+        // 渲染到统一的 sRGB RGBA8 像素缓冲，保证同图不同编码格式哈希一致
+        let bytesPerRow = width * 4
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: &pixels,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return nil }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return Self.sha256Hex(Data(pixels))
+    }
+
+    /// 计算数据的 SHA256 哈希，返回 64 位十六进制字符串
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - 删除

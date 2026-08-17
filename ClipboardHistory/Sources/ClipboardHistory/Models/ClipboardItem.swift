@@ -15,6 +15,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     var timestamp: Date
     var isPinned: Bool
     var textPreview: String?
+    var contentHash: String? = nil
 
     /// 创建一个文字类型条目
     static func textItem(
@@ -40,6 +41,7 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
     static func imageItem(
         id: Int64 = 0,
         imagePath: String,
+        contentHash: String? = nil,
         timestamp: Date = Date(),
         isPinned: Bool = false
     ) -> ClipboardItem {
@@ -50,7 +52,8 @@ struct ClipboardItem: Identifiable, Codable, Equatable {
             imagePath: imagePath,
             timestamp: timestamp,
             isPinned: isPinned,
-            textPreview: "[图片]"
+            textPreview: "[图片]",
+            contentHash: contentHash
         )
     }
 }
