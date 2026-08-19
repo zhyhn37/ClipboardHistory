@@ -17,6 +17,10 @@ macOS 菜单栏剪贴板历史管理工具。自动记录你复制过的一切�
 - **全局快捷键**：默认 `Cmd + Shift + V` 呼出 / 收起
 - **开机自启**：可在设置中开关
 
+## 📸 截图
+
+![ClipboardHistory 弹窗](docs/screenshot.png)
+
 ## 🔒 隐私
 
 所有剪贴板数据仅存储在本机 `~/Library/Application Support/ClipboardHistory/`，不上传任何网络，无任何数据采集。
@@ -64,3 +68,7 @@ xcodebuild -project ClipboardHistory.xcodeproj -scheme ClipboardHistory -configu
 - [ ] 富文本格式保留
 - [ ] 快捷键自定义界面
 - [ ] iCloud / 多设备同步
+
+## 📄 License
+
+[MIT](LICENSE)
