@@ -4,6 +4,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var dataStore = DataStore.shared
     @State private var searchText = ""
+    @State private var isPinnedExpanded = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,30 +23,46 @@ struct ContentView: View {
         .frame(width: 360)
         .frame(height: windowHeight)
         .background(Color.white)
+        .onChange(of: pinnedItems.count) { count in
+            if count > 3 {
+                isPinnedExpanded = false
+            }
+        }
     }
 
     // MARK: - 窗口高度计算
 
-    /// 根据条目数量动态计算窗口高度，最多显示 5 条
+    /// 根据条目数量和折叠状态动态计算窗口高度，最多显示 5 条
     private var windowHeight: CGFloat {
-        // 搜索框高度
         let searchBarHeight: CGFloat = 36
 
         if displayItems.isEmpty {
             return 200  // 空状态
         }
 
-        // 置顶区标题（有置顶条目时出现）
-        let pinnedHeaderHeight: CGFloat = pinnedItems.isEmpty ? 0 : 28
+        // 置顶区高度
+        let pinnedHeight: CGFloat
+        if pinnedItems.isEmpty {
+            pinnedHeight = 0
+        } else if isPinnedExpanded {
+            // 展开：标题 + 卡片
+            let visiblePinned = min(pinnedItems.count, 5)
+            pinnedHeight = 28 + CGFloat(visiblePinned) * cardHeight
+        } else {
+            // 折叠：仅标题
+            pinnedHeight = 28
+        }
 
-        // 一屏最多显示 5 条
-        let visibleCards = min(totalCardCount, 5)
-        let cardsHeight = CGFloat(visibleCards) * cardHeight
+        // 历史区卡片数（最多 5 条总量限制）
+        let maxVisible = 5
+        let visiblePinnedCards = (pinnedItems.isEmpty || !isPinnedExpanded) ? 0 : min(pinnedItems.count, maxVisible)
+        let remaining = maxVisible - visiblePinnedCards
+        let visibleHistoryCards = min(unpinnedItems.count, remaining)
+        let historyHeight = CGFloat(visibleHistoryCards) * cardHeight
 
-        // 底部留白
         let bottomPadding: CGFloat = 8
 
-        return searchBarHeight + pinnedHeaderHeight + cardsHeight + bottomPadding
+        return searchBarHeight + pinnedHeight + historyHeight + bottomPadding
     }
 
     /// 单条卡片估算高度
@@ -64,10 +81,12 @@ struct ContentView: View {
                 // 置顶区
                 if !pinnedItems.isEmpty {
                     pinnedSectionHeader
-                    ForEach(Array(pinnedItems.enumerated()), id: \.element.id) { index, item in
-                        ClipboardCard(item: item)
-                        if index < pinnedItems.count - 1 {
-                            cardDivider
+                    if isPinnedExpanded {
+                        ForEach(Array(pinnedItems.enumerated()), id: \.element.id) { index, item in
+                            ClipboardCard(item: item)
+                            if index < pinnedItems.count - 1 {
+                                cardDivider
+                            }
                         }
                     }
                     sectionDivider
@@ -107,18 +126,44 @@ struct ContentView: View {
     // MARK: - 视图组件
 
     private var pinnedSectionHeader: some View {
-        HStack {
-            Label("置顶", systemImage: "pin.fill")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(.secondary)
-            Spacer()
-            Text("\(pinnedItems.count) 项")
-                .font(.system(size: 10))
-                .foregroundColor(.secondary.opacity(0.7))
+        Button(action: {
+            if shouldAutoCollapse {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isPinnedExpanded.toggle()
+                }
+            }
+        }) {
+            HStack {
+                Label("置顶", systemImage: "pin.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer()
+                if shouldAutoCollapse {
+                    HStack(spacing: 4) {
+                        Text("\(pinnedItems.count) 条")
+                            .font(.system(size: 10))
+                        Image(systemName: isPinnedExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 8, weight: .medium))
+                    }
+                    .foregroundColor(.blue.opacity(0.7))
+                } else {
+                    Text("\(pinnedItems.count) 项")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary.opacity(0.7))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+            .background(Color.gray.opacity(0.04))
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .background(Color.gray.opacity(0.04))
+        .buttonStyle(.plain)
+        .disabled(!shouldAutoCollapse)
+    }
+
+    /// 置顶超过 3 条时才允许折叠
+    private var shouldAutoCollapse: Bool {
+        pinnedItems.count > 3
     }
 
     private var sectionDivider: some View {

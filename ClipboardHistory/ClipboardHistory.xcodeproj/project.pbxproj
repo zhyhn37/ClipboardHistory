@@ -20,6 +20,8 @@
 		A000000100000B /* SearchBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000200000B; };
 		A000000100000C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000200000C; };
 		A000000100000D /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = A000000200000E; };
+		A000000100000E /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A000000200000F; };
+		A000000100000F /* DetailWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000002000010; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +39,8 @@
 		A000000200000C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A000000200000D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A000000200000E /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		A000000200000F /* DetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailView.swift; sourceTree = "<group>"; };
+		A0000002000010 /* DetailWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailWindowController.swift; sourceTree = "<group>"; };
 		A0000003000001 /* ClipboardHistory.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClipboardHistory.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -71,6 +75,7 @@
 				A0000002000004 /* ImageStorage.swift */,
 				A0000002000005 /* MenuBarController.swift */,
 				A0000002000006 /* PasteController.swift */,
+				A0000002000010 /* DetailWindowController.swift */,
 				A0000005000005 /* Models */,
 				A0000005000006 /* Views */,
 			);
@@ -117,6 +122,7 @@
 				A000000200000A /* EmptyStateView.swift */,
 				A000000200000B /* SearchBar.swift */,
 				A000000200000C /* SettingsView.swift */,
+				A000000200000F /* DetailView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -190,6 +196,8 @@
 				A000000100000A /* EmptyStateView.swift in Sources */,
 				A000000100000B /* SearchBar.swift in Sources */,
 				A000000100000C /* SettingsView.swift in Sources */,
+				A000000100000E /* DetailView.swift in Sources */,
+				A000000100000F /* DetailWindowController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

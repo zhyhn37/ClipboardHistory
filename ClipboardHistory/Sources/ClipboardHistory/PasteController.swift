@@ -7,6 +7,30 @@ final class PasteController {
 
     private init() {}
 
+    /// 仅将内容写入剪贴板，不触发粘贴（窗口保持打开）
+    func copyOnly(_ item: ClipboardItem) {
+        // 暂停监听，避免记录自己的操作
+        ClipboardMonitor.shared.suspend()
+
+        NSPasteboard.general.clearContents()
+
+        switch item.type {
+        case .text:
+            NSPasteboard.general.setString(
+                item.textContent ?? "",
+                forType: .string
+            )
+        case .image:
+            if let path = item.imagePath,
+               let image = NSImage(contentsOfFile: path) {
+                NSPasteboard.general.writeObjects([image])
+            }
+        }
+
+        // 恢复监听
+        ClipboardMonitor.shared.resume()
+    }
+
     /// 将条目内容粘贴到当前活动应用
     func paste(_ item: ClipboardItem) {
         // 1. 保存当前剪贴板内容（后续恢复用）

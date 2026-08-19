@@ -30,6 +30,9 @@ struct ClipboardCard: View {
         .onTapGesture {
             pasteItem()
         }
+        .onTapGesture(count: 2) {
+            DetailWindowController.shared.show(item: item)
+        }
     }
 
     // MARK: - 背景
@@ -63,7 +66,7 @@ struct ClipboardCard: View {
             Text(item.textPreview ?? "")
                 .font(.system(size: 13))
                 .foregroundColor(.primary)
-                .lineLimit(2)
+                .lineLimit(1)
                 .truncationMode(.tail)
 
             Text(formatTimestamp(item.timestamp))
@@ -113,6 +116,15 @@ struct ClipboardCard: View {
 
     private var actionButtons: some View {
         HStack(spacing: 6) {
+            // 复制按钮
+            Button(action: copyToClipboard) {
+                Image(systemName: "doc.on.doc")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("复制到剪贴板")
+
             // 置顶按钮
             Button(action: togglePin) {
                 Image(systemName: item.isPinned ? "pin.slash.fill" : "pin.fill")
@@ -135,6 +147,10 @@ struct ClipboardCard: View {
     }
 
     // MARK: - 操作
+
+    private func copyToClipboard() {
+        PasteController.shared.copyOnly(item)
+    }
 
     private func togglePin() {
         DataStore.shared.togglePin(id: item.id)
